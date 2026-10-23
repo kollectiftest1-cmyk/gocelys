@@ -800,10 +800,15 @@ install_nginx() { # $1 ssl, $2 www — installe, teste, recharge ; restaure en c
     ok "Nginx rechargé ($( [[ $1 == 1 ]] && echo HTTPS || echo HTTP ))"
   else
     warn "La nouvelle configuration Nginx est invalide :"
-    nginx -t 2>&1 | sed 's/^/    /'
+    { nginx -t 2>&1 || true; } | sed 's/^/    /'
+    # on remet l'ancien fichier ; Nginx n'a PAS été rechargé, il tourne toujours avec l'ancienne configuration
     if [[ -n "$backup" ]]; then mv -f "$backup" "$NGX_CONF"; else rm -f "$NGX_CONF"; [[ -n "$NGX_LINK" ]] && rm -f "$NGX_LINK"; fi
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx
-    die "Configuration Nginx restaurée : les autres sites continuent de fonctionner."
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx
+      die "Configuration Nginx de Gocelsys restaurée. Les autres sites n'ont pas été interrompus."
+    fi
+    die "Nginx n'a pas été rechargé : il continue de servir tous les sites avec sa configuration en mémoire.
+   Le problème ci-dessus doit être corrigé avant le prochain rechargement (certificat, fichier inclus…)."
   fi
 }
 

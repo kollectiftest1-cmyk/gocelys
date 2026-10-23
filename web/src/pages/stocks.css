@@ -1,0 +1,65 @@
+.matrix td,
+.matrix th {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.matrix th:first-child {
+  min-width: 220px;
+}
+.mx-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  min-width: 92px;
+}
+.mx-cell span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.mx-cell strong {
+  font-variant-numeric: tabular-nums;
+}
+.mx-cell em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.mx-cell.lvl-out strong {
+  color: var(--clay-600);
+}
+.mx-cell.lvl-low strong {
+  color: var(--amber-600);
+}
+.op-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.op-choice button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.op-choice button svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-faint);
+}
+.op-choice button.active {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+.op-choice button.active svg {
+  color: var(--brand-600);
+}

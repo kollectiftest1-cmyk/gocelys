@@ -1,0 +1,305 @@
+/* ============ Site public : vitrine et produits mis en avant ============ */
+
+/* Affiche miniature d'un univers (même mise en scène que la vitrine) */
+.poster {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  aspect-ratio: 16 / 10;
+  border-radius: 18px;
+  color: #fff;
+  background:
+    radial-gradient(90% 80% at 72% 42%, color-mix(in srgb, var(--bg) 82%, white), transparent 70%),
+    var(--bg);
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  align-items: center;
+  padding: 22px;
+  gap: 12px;
+}
+.poster-word {
+  position: absolute;
+  inset: auto -4% 8% auto;
+  z-index: -1;
+  font-size: clamp(3rem, 9vw, 6.5rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 1;
+  color: color-mix(in srgb, white 16%, transparent);
+  white-space: nowrap;
+}
+.poster-copy {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.poster-copy strong {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+.poster-copy p {
+  font-size: var(--fs-sm);
+  color: color-mix(in srgb, white 82%, transparent);
+  line-height: 1.45;
+}
+.poster-cta {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--night-800);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.poster-object {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  filter: drop-shadow(0 18px 22px rgba(0, 0, 0, 0.28));
+}
+.poster-object img {
+  max-height: 210px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.poster.compact {
+  aspect-ratio: 16 / 9;
+  padding: 16px;
+}
+.poster.compact .poster-copy strong {
+  font-size: var(--fs-md);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.poster.compact .poster-word {
+  font-size: 3.6rem;
+}
+.poster.compact .poster-object img {
+  max-height: 110px;
+}
+
+/* Grille des univers */
+.slide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 18px;
+  padding: 20px;
+}
+.slide-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.slide-card.off .poster {
+  filter: grayscale(0.85);
+  opacity: 0.55;
+}
+.slide-card-poster {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 18px;
+  text-align: left;
+  font: inherit;
+}
+.slide-card-poster:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 3px;
+}
+.slide-card-poster:hover .poster-object {
+  transform: translateY(-3px);
+  transition: transform 0.25s var(--ease);
+}
+.slide-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 10px;
+}
+
+/* Éditeur */
+.slide-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.slide-preview {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slide-preview .poster {
+  aspect-ratio: 4 / 5;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr auto;
+}
+.slide-preview .poster-object {
+  grid-column: 1;
+  grid-row: 1;
+}
+.slide-preview .poster-copy {
+  grid-row: 2;
+}
+.slide-preview .poster-word {
+  inset: 14% auto auto -4%;
+}
+.color-pick {
+  width: 40px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.model-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.model-grid button.active {
+  border-color: var(--bg);
+  color: var(--night-800);
+  background: color-mix(in srgb, var(--bg) 9%, white);
+  box-shadow: inset 0 0 0 1px var(--bg);
+}
+.model-icon {
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--bg);
+}
+.model-icon svg {
+  max-height: 42px;
+}
+
+/* Produits mis en avant */
+.feat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+  padding: 0 20px 20px;
+}
+.feat-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.feat-card:hover {
+  border-color: var(--line-strong);
+}
+.feat-card.on {
+  border-color: var(--amber-500, #f2a01f);
+  background: color-mix(in srgb, #f2a01f 7%, white);
+}
+.feat-art {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--c) 16%, white);
+}
+.feat-art svg {
+  width: 44px;
+  height: 54px;
+}
+.feat-art .pv-cut {
+  width: 48px;
+  height: 54px;
+}
+.feat-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.feat-text strong {
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feat-star {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--line-strong);
+}
+.feat-card.on .feat-star {
+  color: #f2a01f;
+  fill: #f2a01f;
+}
+
+@media (max-width: 900px) {
+  .slide-editor {
+    grid-template-columns: 1fr;
+  }
+  .slide-preview {
+    position: static;
+    order: -1;
+  }
+  .slide-preview .poster {
+    aspect-ratio: 16 / 10;
+    grid-template-columns: 1.1fr 1fr;
+    grid-template-rows: 1fr;
+  }
+  .slide-preview .poster-object {
+    grid-column: 2;
+  }
+  .slide-preview .poster-copy {
+    grid-row: 1;
+  }
+  .model-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

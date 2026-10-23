@@ -1,0 +1,110 @@
+.cat-tree {
+  display: flex;
+  flex-direction: column;
+}
+.cat-group {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+}
+.cat-group:last-child {
+  border-bottom: none;
+}
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+}
+.cat-row:hover {
+  background: var(--surface-sunk);
+}
+.cat-row.child {
+  padding-left: 36px;
+}
+.cat-row.inactive {
+  opacity: 0.55;
+}
+.cat-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--c, var(--brand-500));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.cat-row.child .cat-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  opacity: 0.85;
+}
+.cat-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--c) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--c) 25%, white);
+}
+.cat-preview .cat-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+}
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+.icon-grid button,
+.swatches button {
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-soft);
+}
+.icon-grid button.active {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+.swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.swatches button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+}
+.swatches button.active {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--night-800);
+}
+.unit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 20px;
+}
+.unit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunk);
+}
+.unit-card strong {
+  font-size: var(--fs-lg);
+}

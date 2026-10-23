@@ -1,0 +1,29 @@
+.pv-cut {
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 18px rgba(20, 18, 58, 0.18));
+  transition: transform 0.35s var(--ease, ease);
+}
+.pv-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s var(--ease, ease);
+}
+.shop-card:hover .pv-cut,
+.sel-card:hover .pv-cut {
+  transform: translateY(-4px) rotate(-2deg);
+}
+.shop-card:hover .pv-photo,
+.sel-card:hover .pv-photo {
+  transform: scale(1.04);
+}
+.pp-art,
+.sel-art,
+.ck-art,
+.shop-art {
+  position: relative;
+  overflow: hidden;
+}

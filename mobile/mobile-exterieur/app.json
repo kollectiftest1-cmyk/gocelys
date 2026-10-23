@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Gocelsys",
+    "slug": "gocelsys-client",
+    "scheme": "gocelsys",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#14123A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "cd.gocelsys.client",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Votre position aide le livreur à trouver votre adresse."
+      }
+    },
+    "android": {
+      "package": "cd.gocelsys.client",
+      "adaptiveIcon": {
+        "backgroundColor": "#14123A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Votre position aide le livreur à trouver votre adresse."
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "apiUrl": "http://192.168.1.10:8000"
+    }
+  }
+}

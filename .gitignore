@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+backend/db.sqlite3
+backend/media/
+backend/staticfiles/
+backend/.seeded
+.env
+# Node / Expo
+node_modules/
+web/dist/
+.expo/
+dist/
+web-build/
+*.log
+# Natif généré (Continuous Native Generation)
+mobile/*/ios/
+mobile/*/android/

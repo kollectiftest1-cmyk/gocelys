@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Gocelsys Entreprise",
+    "slug": "gocelsys-entreprise",
+    "scheme": "gocelsys-entreprise",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#14123A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "cd.gocelsys.entreprise",
+      "infoPlist": {
+        "NSCameraUsageDescription": "La caméra sert à scanner les codes-barres et à photographier les preuves de livraison.",
+        "NSLocationWhenInUseUsageDescription": "La position aide l'agence à suivre les livraisons en cours."
+      }
+    },
+    "android": {
+      "package": "cd.gocelsys.entreprise",
+      "adaptiveIcon": {
+        "backgroundColor": "#14123A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La caméra sert à scanner les codes-barres et à photographier les preuves de livraison."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "La position aide l'agence à suivre les livraisons en cours."
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "apiUrl": "http://192.168.1.10:8000"
+    }
+  }
+}

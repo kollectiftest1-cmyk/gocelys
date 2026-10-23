@@ -1,0 +1,103 @@
+/*
+  Gocelsys — système visuel « Indigo »
+  Inspiré des SaaS de gestion type Sellsy : nuit indigo, violet électrique, surfaces lavande.
+  Le violet est la couleur d'action ; le corail sert aux accents (promo, nouveautés) ; le ciel aux produits frais.
+*/
+:root {
+  /* Nuit — navigation, en-têtes, fonds sombres */
+  --night-900: #0b0a24;
+  --night-800: #14123a;
+  --night-700: #1f1c55;
+  --night-600: #2c2873;
+  --night-500: #4a4690;
+
+  /* Violet de marque — action principale, liens, sélection */
+  --brand-700: #3a26c4;
+  --brand-600: #4b35e0;
+  --brand-500: #6450ff;
+  --brand-300: #a99dff;
+  --brand-100: #e8e4ff;
+  --brand-50: #f4f2ff;
+
+  /* Ciel — accents frais */
+  --sky-600: #0b9cc4;
+  --sky-500: #22c3e6;
+  --sky-300: #8be1f2;
+  --sky-100: #d6f4fb;
+  --sky-50: #eefbfe;
+
+  /* Corail — mises en avant, promotions */
+  --coral-600: #d9432a;
+  --coral-500: #f25a3c;
+  --coral-100: #ffe3dc;
+  --coral-50: #fff3ef;
+
+  /* États */
+  --leaf-600: #0e8a4f;
+  --leaf-500: #16b36a;
+  --leaf-100: #d5f5e5;
+  --clay-600: #c9363e;
+  --clay-500: #e5484d;
+  --clay-100: #fde2e3;
+  --amber-600: #a86a00;
+  --amber-500: #f2a01f;
+  --amber-100: #fff0d1;
+
+  /* Neutres légèrement violacés */
+  --mist-0: #ffffff;
+  --mist-25: #fbfbfe;
+  --mist-50: #f5f5fa;
+  --mist-100: #ececf4;
+  --mist-200: #dcdce8;
+  --mist-300: #c2c2d3;
+  --mist-500: #6e6e86;
+  --mist-600: #545470;
+  --mist-700: #3b3b55;
+
+  /* Rôles */
+  --bg: var(--mist-50);
+  --surface: var(--mist-0);
+  --surface-sunk: var(--mist-25);
+  --line: var(--mist-100);
+  --line-strong: var(--mist-200);
+  --text: var(--night-800);
+  --text-soft: var(--mist-600);
+  --text-faint: var(--mist-500);
+  --primary: var(--night-800);
+  --primary-hover: var(--night-700);
+  --action: var(--brand-600);
+  --action-hover: var(--brand-700);
+  --focus: 0 0 0 3px rgba(100, 80, 255, 0.32);
+
+  /* Typographie */
+  --font-display: "Plus Jakarta Sans Variable", system-ui, sans-serif;
+  --font-body: "Plus Jakarta Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.0625rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-3xl: 2.375rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --shadow-pop: 0 18px 50px -12px rgba(20, 18, 58, 0.3), 0 4px 12px -4px rgba(20, 18, 58, 0.12);
+  --shadow-lift: 0 1px 2px rgba(20, 18, 58, 0.06);
+
+  --sidebar-w: 248px;
+  --topbar-h: 64px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}

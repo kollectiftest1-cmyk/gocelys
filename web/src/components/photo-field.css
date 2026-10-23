@@ -1,0 +1,110 @@
+.photo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.photo-field-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.photo-field-preview {
+  position: relative;
+  overflow: hidden;
+  height: 170px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(70% 70% at 50% 62%, color-mix(in srgb, var(--c) 26%, white), color-mix(in srgb, var(--c) 6%, white));
+  border: 1px solid var(--line);
+}
+.photo-field-preview .pv-cut {
+  width: 104px;
+  height: 130px;
+}
+.photo-field-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.photo-drop {
+  flex: 1;
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1.5px dashed var(--line-strong);
+  background: var(--surface-soft, #faf9ff);
+  color: var(--text-soft);
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.photo-drop svg {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--brand-600);
+}
+.photo-drop strong {
+  color: var(--night-800);
+}
+.photo-drop:hover,
+.photo-drop.drag {
+  border-color: var(--brand-500);
+  background: var(--brand-50, #f4f2ff);
+}
+.photo-drop:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.photo-error {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--clay-600, #c33);
+}
+.photo-remove {
+  align-self: flex-start;
+}
+.photo-tips {
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  border-radius: 12px;
+  background: var(--surface-soft, #faf9ff);
+  font-size: var(--fs-xs);
+  color: var(--text-soft);
+  display: grid;
+  gap: 3px;
+}
+@media (max-width: 560px) {
+  .photo-field-body {
+    grid-template-columns: 1fr;
+  }
+}
+.prod-thumb {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--c) 16%, white);
+}
+.prod-thumb svg {
+  width: 30px;
+  height: 36px;
+}
+.prod-thumb .pv-cut {
+  width: 32px;
+  height: 36px;
+  filter: none;
+}

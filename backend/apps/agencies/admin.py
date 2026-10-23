@@ -1,0 +1,7 @@
+from django.contrib import admin
+
+from . import models
+
+admin.site.register(models.Agency)
+admin.site.register(models.PointOfSale)
+admin.site.register(models.DeliveryZone)

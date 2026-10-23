@@ -20,6 +20,9 @@ git remote get-url origin >nul 2>&1 || (
   pause & exit /b 1
 )
 
+if exist "mobile\mobile-entreprise\.git" goto :nested
+if exist "mobile\mobile-exterieur\.git" goto :nested
+
 set "MSG="
 set /p "MSG=Decrivez les changements (Entree = Mise a jour) : "
 if "%MSG%"=="" set "MSG=Mise a jour"
@@ -73,6 +76,12 @@ if defined PARENT (
 git update-ref refs/heads/deploy %NEW%
 echo Branche deploy mise a jour (%NEW:~0,7%).
 exit /b 0
+
+:nested
+echo Les dossiers mobile\mobile-entreprise\.git et mobile\mobile-exterieur\.git (crees par Expo)
+echo empechent d'enregistrer les apps mobiles dans main. Supprimez ces deux dossiers caches puis relancez.
+pause
+exit /b 1
 
 :fail
 echo Echec. Rien n'a ete envoye sur le serveur.

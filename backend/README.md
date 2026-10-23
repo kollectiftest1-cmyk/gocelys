@@ -23,6 +23,8 @@ Python 3.12 ou plus récent est requis (Django 6.1).
 | `python manage.py generate_dues` | Génère les échéances des charges récurrentes (aussi fait par `run_alerts`) |
 | `python manage.py rebuild_stock` | Recalcule les soldes de stock depuis le registre des mouvements |
 | `python manage.py seed_demo --reset` | Réinitialise la démonstration |
+| `python manage.py bootstrap --admin admin --password-file F` | Production : rôles, moyens de paiement, unités, catégories, compte admin. Idempotent, sans données de démo |
+| `python manage.py prompts_photos [--vitrine] [--sans-marque] [--sans-photo] [--out F]` | Prompts ChatGPT pour générer les photos de chaque produit |
 
 ## Organisation
 

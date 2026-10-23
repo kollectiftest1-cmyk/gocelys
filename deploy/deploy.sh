@@ -102,7 +102,7 @@ LE_EMAIL="${LE_EMAIL:-admin@${DOMAIN}}"
 mkdir -p "$LOG_DIR"
 LOG_FILE="${LOG_DIR}/deploy-$(date +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$LOG_FILE") 2>&1
-ls -1t "$LOG_DIR"/deploy-*.log 2>/dev/null | tail -n +21 | xargs -r rm -f
+{ ls -1t "$LOG_DIR"/deploy-*.log 2>/dev/null || true; } | tail -n +21 | xargs -r rm -f
 
 # Un seul déploiement à la fois
 exec 9>/var/lock/gocelsys-deploy.lock
@@ -111,7 +111,7 @@ flock -n 9 || die "Un autre déploiement Gocelsys est déjà en cours."
 FIRST_INSTALL=1
 [[ -L "${APP_DIR}/current" ]] && FIRST_INSTALL=0
 
-as_app() { runuser -u "$APP" -- env HOME="$APP_DIR" PATH="${APP_DIR}/tools/node/bin:${APP_DIR}/tools/uv:/usr/local/bin:/usr/bin:/bin" \
+as_app() { runuser -u "$APP" -- env -C "$APP_DIR" HOME="$APP_DIR" UV_NO_CONFIG=1 PATH="${APP_DIR}/tools/node/bin:${APP_DIR}/tools/uv:/usr/local/bin:/usr/bin:/bin" \
   UV_CACHE_DIR="${APP_DIR}/.cache/uv" UV_PYTHON_INSTALL_DIR="${APP_DIR}/tools/python" npm_config_cache="${APP_DIR}/.cache/npm" \
   GIT_SSH_COMMAND="ssh -i ${APP_DIR}/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" "$@"; }
 # manage.py avec les variables de production
@@ -131,13 +131,13 @@ show_status() {
     info "Santé : $(curl -s --max-time 5 --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" http://localhost/api/health/ || echo 'injoignable')"
   fi
   [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]] && info "Certificat HTTPS : $(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" | cut -d= -f2)"
-  info "Versions disponibles :"; ls -1t "${APP_DIR}/releases" 2>/dev/null | head -n "$KEEP_RELEASES" | sed 's/^/      /'
+  info "Versions disponibles :"; ls -1t "${APP_DIR}/releases" 2>/dev/null | head -n "$KEEP_RELEASES" | sed 's/^/      /' || true
   info "Sauvegardes : $(ls -1 "${APP_DIR}/backups" 2>/dev/null | wc -l) dans ${APP_DIR}/backups"
 }
 
 wait_healthy() {
   local i
-  for i in $(seq 1 40); do
+  for _ in $(seq 1 40); do
     if curl -fsS --max-time 3 --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" -H "X-Forwarded-Proto: https" http://localhost/api/health/ >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
@@ -181,6 +181,7 @@ if [[ -z "$WORKERS" ]]; then
   WORKERS=$(( $(nproc) + 1 )); (( WORKERS > 4 )) && WORKERS=4; (( WORKERS < 2 )) && WORKERS=2
 fi
 
+command -v ss >/dev/null 2>&1 || { DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 >/dev/null; }
 # Qui sert déjà le port 80 ? On ne cohabite qu'avec Nginx.
 port_owner() { ss -ltnpH "sport = :$1" 2>/dev/null | grep -o 'users:(("[^"]*"' | head -1 | cut -d'"' -f2 || true; }
 P80="$(port_owner 80)"; P443="$(port_owner 443)"
@@ -276,8 +277,9 @@ rand() { local s; s="$(openssl rand -hex 64)"; printf '%s' "${s:0:$1}"; }
 set_env() { # ajoute la clé si elle manque ; --force la remplace
   local key="$1" val="$2" force="${3:-}"
   if grep -q "^${key}=" "$ENV_FILE"; then
-    [[ "$force" == "--force" ]] && sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+    if [[ "$force" == "--force" ]]; then sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"; fi
   else echo "${key}=${val}" >> "$ENV_FILE"; fi
+  return 0
 }
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "# Généré par deploy.sh le $(date '+%F %T'). Les secrets sont conservés d'une mise à jour à l'autre." > "$ENV_FILE"
@@ -446,7 +448,7 @@ if [[ $FIRST_INSTALL -eq 0 && $REBUILD -eq 1 ]]; then
     PGPASSWORD="$DB_PASSWORD" pg_dump -Fc -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$BK"
   fi
   chmod 0640 "$BK"
-  ls -1t "${APP_DIR}"/backups/*.dump 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f
+  { ls -1t "${APP_DIR}"/backups/*.dump 2>/dev/null || true; } | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f
   ok "$(basename "$BK") ($(du -h "$BK" | cut -f1))"
 fi
 
@@ -793,7 +795,7 @@ ssl_session_tickets off;
 EOF
 chmod 0644 "${ETC_DIR}"/nginx-*.conf
 
-resolves_here() { getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | sort -u | grep -qx "$SERVER_IP"; }
+resolves_here() { { getent ahostsv4 "$1" 2>/dev/null || true; } | awk '{print $1}' | sort -u | grep -qx "$SERVER_IP"; }
 cert_has() { openssl x509 -noout -ext subjectAltName -in "${CERT_DIR}/fullchain.pem" 2>/dev/null | grep -q "DNS:$1"; }
 
 HAVE_CERT=0; WWW_OK=0
@@ -806,7 +808,7 @@ if [[ $HAVE_CERT == 1 ]]; then install_nginx 1 "$WWW_IN_CERT"; else install_ngin
 if [[ $OPT_NOSSL -eq 0 ]]; then
   step "Certificat HTTPS (Let's Encrypt)"
   if ! resolves_here "$DOMAIN"; then
-    warn "${DOMAIN} ne pointe pas encore vers ${SERVER_IP} (DNS actuel : $(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u | tr '\n' ' ')) ."
+    warn "${DOMAIN} ne pointe pas encore vers ${SERVER_IP} (DNS actuel : $( { getent ahostsv4 "$DOMAIN" || true; } | awk '{print $1}' | sort -u | tr '\n' ' ' ))."
     warn "Créez un enregistrement A « @ » et « www » vers ${SERVER_IP}, puis relancez : le certificat sera demandé automatiquement."
   elif [[ $HAVE_CERT == 0 || ( $WWW_OK == 1 && $WWW_IN_CERT == 0 ) ]]; then
     domains=(-d "$DOMAIN"); [[ $WWW_OK == 1 ]] && domains+=(-d "$WWW_DOMAIN")
@@ -840,17 +842,25 @@ if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: a
 fi
 
 # ============================================================================= 13. nettoyage + bilan
-ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null | sed 's#/$##' | grep -vx "$(readlink -f "${APP_DIR}/current")" \
+{ ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true; } | sed 's#/$##' | { grep -vx "$(readlink -f "${APP_DIR}/current")" || true; } \
   | tail -n +"$KEEP_RELEASES" | xargs -r rm -rf
 # node_modules n'est utile qu'à la version en ligne (accélère la prochaine compilation)
 for r in "${APP_DIR}"/releases/*/; do [[ "${r%/}" != "$(readlink -f "${APP_DIR}/current")" ]] && rm -rf "${r}web/node_modules"; done
 
 step "Vérification publique"
 SCHEME="http"; [[ $HAVE_CERT == 1 ]] && SCHEME="https"
-code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" --resolve "${DOMAIN}:80:127.0.0.1" "${SCHEME}://${DOMAIN}/" || true)"
-api="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" --resolve "${DOMAIN}:80:127.0.0.1" "${SCHEME}://${DOMAIN}/api/health/" || true)"
-[[ "$code" == "200" ]] && ok "Site : ${SCHEME}://${DOMAIN}/ → 200" || warn "Site : ${SCHEME}://${DOMAIN}/ → ${code}"
-[[ "$api" == "200" ]] && ok "API  : ${SCHEME}://${DOMAIN}/api/health/ → 200" || warn "API : → ${api}"
+# Nginx applique un « reload » en différé : on vérifie le CONTENU (pas seulement le code 200),
+# sinon on pourrait lire la page d'un autre site du serveur pendant la transition.
+probe() { curl -s --noproxy '*' --max-time 8 --resolve "${DOMAIN}:443:127.0.0.1" --resolve "${DOMAIN}:80:127.0.0.1" "$1" 2>/dev/null || true; }
+SITE_OK=0 API_OK=0
+for _ in $(seq 1 15); do
+  [[ $SITE_OK == 0 ]] && probe "${SCHEME}://${DOMAIN}/" | grep -qi "gocelsys" && SITE_OK=1
+  [[ $API_OK == 0 ]] && probe "${SCHEME}://${DOMAIN}/api/health/" | grep -q '"status": "ok"' && API_OK=1
+  [[ $SITE_OK == 1 && $API_OK == 1 ]] && break
+  sleep 1
+done
+[[ $SITE_OK == 1 ]] && ok "Site : ${SCHEME}://${DOMAIN}/ répond (page Gocelsys)" || warn "Site : ${SCHEME}://${DOMAIN}/ ne renvoie pas la page Gocelsys."
+[[ $API_OK == 1 ]] && ok "API  : ${SCHEME}://${DOMAIN}/api/health/ → base de données OK" || warn "API : ${SCHEME}://${DOMAIN}/api/health/ ne répond pas correctement."
 
 printf '\n%s══════════════════════════════════════════════════════════════════%s\n' "$C_G$C_B" "$C_0"
 if [[ $FIRST_INSTALL -eq 1 ]]; then

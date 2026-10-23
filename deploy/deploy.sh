@@ -132,7 +132,7 @@ show_status() {
   fi
   [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]] && info "Certificat HTTPS : $(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" | cut -d= -f2)"
   info "Versions disponibles (✔ = validée, retour arrière possible) :"
-  for r in $(ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true); do
+  for r in $(ls -1d "${APP_DIR}"/releases/*/ 2>/dev/null | sort -r || true); do
     r="${r%/}"; printf '      %s %s%s\n' "$([[ -f "$r/.ok" ]] && echo ✔ || echo ·)" "$(basename "$r")" "$([[ "$r" == "$(readlink -f "${APP_DIR}/current")" ]] && echo '   ← en ligne')"
   done
   info "Sauvegardes : $(ls -1 "${APP_DIR}/backups" 2>/dev/null | wc -l) dans ${APP_DIR}/backups"
@@ -158,7 +158,7 @@ if [[ $OPT_ROLLBACK -eq 1 ]]; then
   while read -r r; do
     r="${r%/}"; [[ "$r" == "$cur" ]] && continue
     [[ -f "$r/.ok" ]] && { prev="$r"; break; }
-  done < <(ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true)
+  done < <(ls -1d "${APP_DIR}"/releases/*/ 2>/dev/null | sort -r || true)
   [[ -n "$prev" ]] || die "Aucune version précédente validée n'est disponible."
   info "De $(basename "$cur") vers $(basename "$prev")"
   ln -sfn "$prev" "${APP_DIR}/current.tmp" && mv -Tf "${APP_DIR}/current.tmp" "${APP_DIR}/current"
@@ -875,7 +875,7 @@ LIVE="$(readlink -f "${APP_DIR}/current")"
 # versions jamais validées (compilation interrompue, échec) : supprimées
 for r in "${APP_DIR}"/releases/*/; do r="${r%/}"; [[ -d "$r" && "$r" != "$LIVE" && ! -f "$r/.ok" ]] && rm -rf "$r"; done
 # on garde les KEEP_RELEASES dernières versions validées
-{ ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true; } | sed 's#/$##' | { grep -vx "$LIVE" || true; } \
+{ ls -1d "${APP_DIR}"/releases/*/ 2>/dev/null | sort -r || true; } | sed 's#/$##' | { grep -vx "$LIVE" || true; } \
   | tail -n +"$KEEP_RELEASES" | xargs -r rm -rf
 # node_modules n'est utile qu'à la version en ligne (accélère la prochaine compilation)
 for r in "${APP_DIR}"/releases/*/; do [[ "${r%/}" != "$(readlink -f "${APP_DIR}/current")" ]] && rm -rf "${r}web/node_modules"; done

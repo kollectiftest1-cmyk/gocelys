@@ -429,12 +429,24 @@ else
   else
     as_app bash -c "cd '${RELEASE}/web' && npm ci --no-audit --no-fund --loglevel=error"
   fi
-  as_app bash -c "cd '${RELEASE}/web' && NODE_OPTIONS=--max-old-space-size=${NODE_HEAP} VITE_API_URL= npm run build --silent" >/dev/null
-  [[ -f "${RELEASE}/web/dist/index.html" ]] || die "La compilation du site web n'a pas produit dist/index.html."
+  build_log="$(mktemp)"; chmod 0666 "$build_log"
+  if ! as_app bash -c "cd '${RELEASE}/web' && NODE_OPTIONS=--max-old-space-size=${NODE_HEAP} VITE_API_URL= npm run build" > "$build_log" 2>&1 \
+     || [[ ! -f "${RELEASE}/web/dist/index.html" ]]; then
+    tail -n 40 "$build_log" | sed 's/^/    /'; rm -f "$build_log"
+    rm -rf "$RELEASE"
+    die "La compilation du site web a échoué : la version en ligne n'a pas été touchée."
+  fi
+  rm -f "$build_log"
   chmod -R a+rX "${RELEASE}/web/dist"
   ok "Site web compilé ($(du -sh "${RELEASE}/web/dist" | cut -f1))"
 
-  manage "$RELEASE" check --deploy --fail-level ERROR >/dev/null
+  check_log="$(mktemp)"; chmod 0666 "$check_log"
+  if ! manage "$RELEASE" check --deploy --fail-level ERROR > "$check_log" 2>&1; then
+    sed 's/^/    /' "$check_log"; rm -f "$check_log"
+    rm -rf "$RELEASE"
+    die "Le backend de cette version est invalide : la version en ligne n'a pas été touchée."
+  fi
+  rm -f "$check_log"
   ok "Contrôles Django de production : OK"
 fi
 

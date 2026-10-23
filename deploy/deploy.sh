@@ -141,7 +141,9 @@ show_status() {
 wait_healthy() {
   local i
   for _ in $(seq 1 40); do
-    if curl -fsS --max-time 3 --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" -H "X-Forwarded-Proto: https" http://localhost/api/health/ >/dev/null 2>&1; then return 0; fi
+    # en ligne ET branché sur PostgreSQL ET hors mode debug (sinon la configuration n'a pas été lue)
+    if curl -fsS --max-time 3 --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" -H "X-Forwarded-Proto: https" http://localhost/api/health/ 2>/dev/null \
+       | grep -q '"engine": "postgresql", "debug": false'; then return 0; fi
     sleep 1
   done
   return 1
@@ -690,26 +692,25 @@ render_nginx() { # $1 = 1 avec HTTPS, 0 sans ; $2 = 1 si www est couvert
         alias ${APP_DIR}/shared/media/;
         expires 7d;
         add_header Access-Control-Allow-Origin "*" always;
-        add_header X-Content-Type-Options nosniff always;
+        include ${ETC_DIR}/nginx-headers.conf;
         location ~* \.(php|py|sh|html?)\$ { deny all; }
     }
     # Fichiers du site compilés (noms avec empreinte : cache d'un an)
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        include ${ETC_DIR}/nginx-headers.conf;
         access_log off;
         try_files \$uri =404;
     }
     location = /index.html {
         add_header Cache-Control "no-cache";
-        add_header X-Content-Type-Options nosniff always;
-        add_header Referrer-Policy same-origin always;
+        include ${ETC_DIR}/nginx-headers.conf;
     }
     # Application monopage : toute autre adresse renvoie index.html
     location / {
         try_files \$uri \$uri/ /index.html;
-        add_header X-Content-Type-Options nosniff always;
-        add_header Referrer-Policy same-origin always;
+        include ${ETC_DIR}/nginx-headers.conf;
     }
 EOF
 )"
@@ -763,7 +764,7 @@ ${L6_443:+${L6_443}${h2_listen};}
 ${h2_line}
     server_name ${DOMAIN};
     include ${ETC_DIR}/nginx-ssl.conf;
-    add_header Strict-Transport-Security "max-age=31536000" always;
+    include ${ETC_DIR}/nginx-headers.conf;
 
 ${app_block}
 }
@@ -778,6 +779,14 @@ EOF
 }
 
 install_nginx() { # $1 ssl, $2 www — installe, teste, recharge ; restaure en cas d'erreur
+  {
+    echo "# Géré par deploy.sh — en-têtes de sécurité (inclus dans chaque location qui ajoute ses propres en-têtes)"
+    echo "add_header X-Content-Type-Options nosniff always;"
+    echo "add_header Referrer-Policy same-origin always;"
+    echo "add_header X-Frame-Options DENY always;"
+    [[ "$1" == "1" ]] && echo 'add_header Strict-Transport-Security "max-age=31536000" always;'
+  } > "${ETC_DIR}/nginx-headers.conf"
+  chmod 0644 "${ETC_DIR}/nginx-headers.conf"
   local new; new="$(mktemp)"
   render_nginx "$1" "$2" | awk 'NF || prev {print} {prev=NF}' > "$new"
   if [[ -f "$NGX_CONF" ]] && cmp -s "$new" "$NGX_CONF"; then rm -f "$new"; ok "Configuration Nginx inchangée"; return 0; fi

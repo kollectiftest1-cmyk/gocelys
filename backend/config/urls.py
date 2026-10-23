@@ -14,7 +14,8 @@ def health(_request):
             cursor.execute("SELECT 1")
     except Exception as exc:  # noqa: BLE001
         return JsonResponse({"status": "error", "service": "gocelsys-api", "database": str(exc)[:200]}, status=503)
-    return JsonResponse({"status": "ok", "service": "gocelsys-api", "database": "ok"})
+    return JsonResponse({"status": "ok", "service": "gocelsys-api", "database": "ok", "engine": connection.vendor,
+                         "debug": settings.DEBUG})
 
 
 admin.site.site_header = "Gocelsys — Administration technique"

@@ -131,7 +131,10 @@ show_status() {
     info "Santé : $(curl -s --max-time 5 --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" http://localhost/api/health/ || echo 'injoignable')"
   fi
   [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]] && info "Certificat HTTPS : $(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" | cut -d= -f2)"
-  info "Versions disponibles :"; ls -1t "${APP_DIR}/releases" 2>/dev/null | head -n "$KEEP_RELEASES" | sed 's/^/      /' || true
+  info "Versions disponibles (✔ = validée, retour arrière possible) :"
+  for r in $(ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true); do
+    r="${r%/}"; printf '      %s %s%s\n' "$([[ -f "$r/.ok" ]] && echo ✔ || echo ·)" "$(basename "$r")" "$([[ "$r" == "$(readlink -f "${APP_DIR}/current")" ]] && echo '   ← en ligne')"
+  done
   info "Sauvegardes : $(ls -1 "${APP_DIR}/backups" 2>/dev/null | wc -l) dans ${APP_DIR}/backups"
 }
 
@@ -150,11 +153,23 @@ if [[ $OPT_ROLLBACK -eq 1 ]]; then
   step "Retour à la version précédente"
   [[ -L "${APP_DIR}/current" ]] || die "Aucune installation."
   cur="$(readlink -f "${APP_DIR}/current")"
-  prev="$(ls -1dt "${APP_DIR}"/releases/*/ | sed 's#/$##' | grep -vx "$cur" | head -1 || true)"
-  [[ -n "$prev" ]] || die "Aucune version précédente disponible."
+  # seulement une version qui a déjà fonctionné en ligne (marquée .ok)
+  prev=""
+  while read -r r; do
+    r="${r%/}"; [[ "$r" == "$cur" ]] && continue
+    [[ -f "$r/.ok" ]] && { prev="$r"; break; }
+  done < <(ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true)
+  [[ -n "$prev" ]] || die "Aucune version précédente validée n'est disponible."
+  info "De $(basename "$cur") vers $(basename "$prev")"
   ln -sfn "$prev" "${APP_DIR}/current.tmp" && mv -Tf "${APP_DIR}/current.tmp" "${APP_DIR}/current"
   systemctl restart gocelsys-api
-  wait_healthy && ok "Revenu à $(basename "$prev")." || die "L'API ne répond pas après le retour arrière : journalctl -u gocelsys-api -n 80"
+  if wait_healthy; then
+    ok "Revenu à $(basename "$prev") (commit $(release_sha "$prev" | cut -c1-7))."
+  else
+    ln -sfn "$cur" "${APP_DIR}/current.tmp" && mv -Tf "${APP_DIR}/current.tmp" "${APP_DIR}/current"
+    systemctl restart gocelsys-api; wait_healthy || true
+    die "La version $(basename "$prev") ne démarre pas : retour à $(basename "$cur"). Journal : journalctl -u gocelsys-api -n 80"
+  fi
   warn "La base de données n'a pas été restaurée. Si une migration a changé sa structure, restaurez la sauvegarde :"
   warn "  ls ${APP_DIR}/backups   puis   pg_restore --clean -d ${DB_NAME} <fichier>"
   exit 0
@@ -608,6 +623,7 @@ else
   info "Aucun changement : l'API n'est pas redémarrée."
 fi
 if wait_healthy; then
+  touch "${RELEASE}/.ok"
   ok "API en ligne : $(curl -s --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" http://localhost/api/health/)"
 else
   warn "L'API ne répond pas. Dernières lignes du journal :"
@@ -616,6 +632,7 @@ else
     ln -sfn "$PREVIOUS" "${APP_DIR}/current.tmp" && mv -Tf "${APP_DIR}/current.tmp" "${APP_DIR}/current"
     systemctl restart gocelsys-api
     wait_healthy && warn "Retour automatique à la version précédente ($(basename "$PREVIOUS")) : le site reste en ligne."
+    rm -rf "$RELEASE"
     [[ -n "${BK:-}" ]] && warn "Sauvegarde de la base avant migration : ${BK}"
   fi
   die "La nouvelle version n'a pas démarré."
@@ -854,7 +871,11 @@ if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: a
 fi
 
 # ============================================================================= 13. nettoyage + bilan
-{ ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true; } | sed 's#/$##' | { grep -vx "$(readlink -f "${APP_DIR}/current")" || true; } \
+LIVE="$(readlink -f "${APP_DIR}/current")"
+# versions jamais validées (compilation interrompue, échec) : supprimées
+for r in "${APP_DIR}"/releases/*/; do r="${r%/}"; [[ -d "$r" && "$r" != "$LIVE" && ! -f "$r/.ok" ]] && rm -rf "$r"; done
+# on garde les KEEP_RELEASES dernières versions validées
+{ ls -1dt "${APP_DIR}"/releases/*/ 2>/dev/null || true; } | sed 's#/$##' | { grep -vx "$LIVE" || true; } \
   | tail -n +"$KEEP_RELEASES" | xargs -r rm -rf
 # node_modules n'est utile qu'à la version en ligne (accélère la prochaine compilation)
 for r in "${APP_DIR}"/releases/*/; do [[ "${r%/}" != "$(readlink -f "${APP_DIR}/current")" ]] && rm -rf "${r}web/node_modules"; done

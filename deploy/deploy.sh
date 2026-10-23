@@ -850,7 +850,9 @@ if [[ $HAVE_CERT == 1 ]]; then install_nginx 1 "$WWW_IN_CERT"; else install_ngin
 
 if [[ $OPT_NOSSL -eq 0 ]]; then
   step "Certificat HTTPS (Let's Encrypt)"
-  if ! resolves_here "$DOMAIN"; then
+  if [[ $HAVE_CERT == 1 && ! ( $WWW_OK == 1 && $WWW_IN_CERT == 0 ) ]]; then
+    ok "Certificat valide jusqu'au $(openssl x509 -enddate -noout -in "${CERT_DIR}/fullchain.pem" | cut -d= -f2) (renouvelé automatiquement par certbot)"
+  elif ! resolves_here "$DOMAIN"; then
     warn "${DOMAIN} ne pointe pas encore vers ${SERVER_IP} (DNS actuel : $( { getent ahostsv4 "$DOMAIN" || true; } | awk '{print $1}' | sort -u | tr '\n' ' ' ))."
     warn "Créez un enregistrement A « @ » et « www » vers ${SERVER_IP}, puis relancez : le certificat sera demandé automatiquement."
   elif [[ $HAVE_CERT == 0 || ( $WWW_OK == 1 && $WWW_IN_CERT == 0 ) ]]; then

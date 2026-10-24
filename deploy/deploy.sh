@@ -20,6 +20,7 @@
 #
 #  Options : --repo URL       dépôt Git (sinon celui enregistré dans /etc/gocelsys/deploy.conf)
 #            --branch NOM     branche à déployer (défaut : deploy)
+#            --token JETON    jeton GitHub en lecture seule (dépôt privé en https://) ; gardé pour les mises à jour
 #            --email ADRESSE  e-mail Let's Encrypt (défaut : admin@DOMAINE)
 #            --demo           1re installation : charger les données de démonstration
 #            --force          reconstruire même si la version n'a pas changé
@@ -51,6 +52,7 @@ KEEP_BACKUPS="${KEEP_BACKUPS:-10}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-deploy}"
 LE_EMAIL="${LE_EMAIL:-}"
+GIT_TOKEN="${GIT_TOKEN:-}"
 WORKERS="${WORKERS:-}"
 DB_NAME="${DB_NAME:-gocelsys}"
 DB_USER="${DB_USER:-gocelsys}"
@@ -76,6 +78,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO_URL="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     --email) LE_EMAIL="$2"; shift 2 ;;
+    --token) GIT_TOKEN="$2"; shift 2 ;;
     --demo) OPT_DEMO=1; shift ;;
     --force) OPT_FORCE=1; shift ;;
     --no-ssl) OPT_NOSSL=1; shift ;;
@@ -111,7 +114,7 @@ flock -n 9 || die "Un autre déploiement Gocelsys est déjà en cours."
 FIRST_INSTALL=1
 [[ -L "${APP_DIR}/current" ]] && FIRST_INSTALL=0
 
-as_app() { runuser -u "$APP" -- env -C "$APP_DIR" HOME="$APP_DIR" UV_NO_CONFIG=1 PATH="${APP_DIR}/tools/node/bin:${APP_DIR}/tools/uv:/usr/local/bin:/usr/bin:/bin" \
+as_app() { runuser -u "$APP" -- env -C "$APP_DIR" HOME="$APP_DIR" UV_NO_CONFIG=1 GIT_TERMINAL_PROMPT=0 PATH="${APP_DIR}/tools/node/bin:${APP_DIR}/tools/uv:/usr/local/bin:/usr/bin:/bin" \
   UV_CACHE_DIR="${APP_DIR}/.cache/uv" UV_PYTHON_INSTALL_DIR="${APP_DIR}/tools/python" npm_config_cache="${APP_DIR}/.cache/npm" \
   GIT_SSH_COMMAND="ssh -i ${APP_DIR}/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" "$@"; }
 # manage.py avec les variables de production
@@ -139,7 +142,6 @@ show_status() {
 }
 
 wait_healthy() {
-  local i
   for _ in $(seq 1 40); do
     # en ligne ET branché sur PostgreSQL ET hors mode debug (sinon la configuration n'a pas été lue)
     if curl -fsS --max-time 3 --unix-socket "$SOCKET" -H "Host: ${DOMAIN}" -H "X-Forwarded-Proto: https" http://localhost/api/health/ 2>/dev/null \
@@ -390,6 +392,31 @@ if [[ "$REPO_URL" =~ ^(git@|ssh://) ]]; then
     trap - ERR; exit 3
   fi
 fi
+if [[ "$REPO_URL" =~ ^https:// ]]; then
+  # Dépôt en https : public, ou privé avec un jeton GitHub en lecture seule (gardé pour les mises à jour)
+  CRED_FILE="${APP_DIR}/.git-credentials"
+  GIT_HOST="$(sed -E 's#^https://([^/@]+@)?([^/]+)/.*#\2#' <<< "$REPO_URL")"
+  save_token() {
+    printf 'https://x-access-token:%s@%s\n' "$1" "$GIT_HOST" > "$CRED_FILE"
+    chown "$APP":"$APP" "$CRED_FILE"; chmod 0600 "$CRED_FILE"
+    as_app git config --global credential.helper "store --file=${CRED_FILE}"
+  }
+  [[ -n "$GIT_TOKEN" ]] && save_token "$GIT_TOKEN"
+  if ! as_app git ls-remote --exit-code --heads "$REPO_URL" "$BRANCH" >/dev/null 2>&1; then
+    if as_app git ls-remote "$REPO_URL" >/dev/null 2>&1; then
+      die "Le dépôt est accessible mais la branche « ${BRANCH} » n'existe pas encore : lancez publier-vps.bat sur votre PC."
+    fi
+    if [[ -z "$GIT_TOKEN" && -t 0 ]]; then
+      echo "  Le dépôt est privé (ou l'adresse est fausse). Collez un jeton GitHub en lecture seule"
+      echo "  (GitHub → Settings → Developer settings → Fine-grained tokens → dépôt gocelsys → Contents : Read-only)."
+      read -rsp "  Jeton (la saisie reste masquée) : " GIT_TOKEN; echo
+      [[ -n "$GIT_TOKEN" ]] && save_token "$GIT_TOKEN"
+    fi
+    as_app git ls-remote --exit-code --heads "$REPO_URL" "$BRANCH" >/dev/null 2>&1 \
+      || die "Accès refusé à ${REPO_URL} : vérifiez l'adresse et le jeton (droit Contents : Read-only sur ce dépôt, non expiré)."
+  fi
+  ok "Accès au dépôt vérifié$([[ -f "$CRED_FILE" ]] && echo " (jeton enregistré pour les mises à jour)")"
+fi
 if [[ ! -d "${APP_DIR}/repo/.git" ]]; then
   as_app git clone --quiet --branch "$BRANCH" --single-branch "$REPO_URL" "${APP_DIR}/repo" \
     || die "Clonage impossible : vérifiez l'URL, la branche « ${BRANCH} » et l'accès au dépôt."
@@ -412,10 +439,12 @@ cat > /usr/local/bin/gocelsys-deploy <<EOF
 set -euo pipefail
 [[ \$EUID -eq 0 ]] || exec sudo "\$0" "\$@"
 . ${CONF_FILE}
-runuser -u ${APP} -- env GIT_SSH_COMMAND="ssh -i ${APP_DIR}/.ssh/id_ed25519 -o IdentitiesOnly=yes" \\
-  git -C ${APP_DIR}/repo fetch --quiet origin "+refs/heads/\${BRANCH}:refs/remotes/origin/\${BRANCH}"
+if ! runuser -u ${APP} -- env -C ${APP_DIR} HOME=${APP_DIR} GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -i ${APP_DIR}/.ssh/id_ed25519 -o IdentitiesOnly=yes" \\
+     git -C ${APP_DIR}/repo fetch --quiet origin "+refs/heads/\${BRANCH}:refs/remotes/origin/\${BRANCH}"; then
+  echo "! Dépôt injoignable (réseau, ou jeton GitHub expiré : ajoutez --token NOUVEAU_JETON). Script local utilisé." >&2
+fi
 tmp="\$(mktemp /tmp/gocelsys-deploy.XXXXXX.sh)"
-runuser -u ${APP} -- git -C ${APP_DIR}/repo show "origin/\${BRANCH}:deploy/deploy.sh" > "\$tmp"
+runuser -u ${APP} -- env -C ${APP_DIR} HOME=${APP_DIR} git -C ${APP_DIR}/repo show "origin/\${BRANCH}:deploy/deploy.sh" > "\$tmp"
 exec bash "\$tmp" "\$@"
 EOF
 chmod 0755 /usr/local/bin/gocelsys-deploy
@@ -654,7 +683,18 @@ ver_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]; }
 render_nginx() { # $1 = 1 avec HTTPS, 0 sans ; $2 = 1 si www est couvert
   local ssl="$1" www="$2" names="${DOMAIN}" h2_listen="" h2_line=""
   [[ "$www" == "1" ]] && names="${DOMAIN} ${WWW_DOMAIN}"
-  if ver_ge "$NGX_VER" "1.25.1"; then h2_line="    http2 on;"; else h2_listen=" http2"; fi
+  if ver_ge "$NGX_VER" "1.25.1"; then
+    h2_line="    http2 on;"            # directive propre au bloc server : n'affecte pas les autres sites
+  else
+    # Avant 1.25.1, « listen 443 ssl http2 » active HTTP/2 pour TOUS les sites du port 443.
+    # On ne l'ajoute que si les autres sites l'utilisent déjà (ou s'il n'y en a aucun) : leur comportement ne change pas.
+    local others="" f
+    for f in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+      [[ -f "$f" && "$(basename "$f")" != gocelsys.conf* ]] || continue
+      others+="$(grep -hE '^[[:space:]]*listen[^;]*443' "$f" 2>/dev/null || true)"$'\n'
+    done
+    if [[ -z "$(grep -v '#' <<< "$others" | tr -d '[:space:]')" ]] || grep -q 'http2' <<< "$others"; then h2_listen=" http2"; fi
+  fi
   local app_block
   app_block="$(cat <<EOF
     root ${APP_DIR}/current/web/dist;

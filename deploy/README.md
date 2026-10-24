@@ -11,28 +11,26 @@ deploy/    deploy.sh — installation et mises à jour
 Elle est **générée automatiquement** depuis `main` par `publier-vps.bat` (Windows) ou `scripts/publier-vps.sh`.
 Ne la modifiez pas à la main : travaillez sur `main`, puis publiez.
 
-## Première installation (une seule fois)
+## Première installation (une seule fois, depuis le terminal du navigateur)
 
 Prérequis :
-- le domaine `gocelsys.com` et `www` pointent vers `72.60.212.142` (enregistrements A) ;
-- la branche `deploy` est sur GitHub (dépôt privé conseillé).
+- `gocelsys.com` et `www` pointent vers `72.60.212.142` (enregistrements A) ;
+- la branche `deploy` est sur GitHub (`publier-vps.bat` sur votre PC).
+
+Dans le terminal du serveur, passez root (`sudo -i` si besoin). Collez ensuite **tout le bloc** du fichier [`installer.sh`](installer.sh), précédé de `cat > /root/installer.sh <<'GOCELSYS'` et suivi d'une ligne `GOCELSYS`. Lancez enfin :
 
 ```bash
-# depuis votre PC : copier le script sur le serveur
-scp deploy/deploy.sh root@72.60.212.142:/root/gocelsys-deploy.sh
-
-# sur le serveur
-ssh root@72.60.212.142
-sudo bash /root/gocelsys-deploy.sh --repo git@github.com:VOTRE-COMPTE/gocelsys.git --email vous@gocelsys.com
+bash /root/installer.sh
 ```
 
-Si le dépôt est privé, le premier lancement affiche une **clé de déploiement** et s'arrête :
-1. Ajoutez-la dans GitHub → dépôt → Settings → Deploy keys (lecture seule).
-2. Relancez la même commande.
+L'installateur :
+1. demande l'URL SSH du dépôt (`git@github.com:COMPTE/gocelsys.git`) et un e-mail ;
+2. affiche une **clé de déploiement** et attend. Ajoutez-la dans GitHub → dépôt → Settings → Deploy keys → Add deploy key, **sans** cocher l'écriture, puis appuyez sur Entrée ;
+3. clone la branche `deploy` et lance l'installation complète.
 
-À la fin, le script affiche l'adresse du site et le mot de passe du compte `admin`. Ce mot de passe est aussi gardé dans `/etc/gocelsys/admin-initial.txt` : changez-le, puis supprimez ce fichier.
+À la fin, il affiche l'adresse du site et le mot de passe `admin`. Ce mot de passe est aussi gardé dans `/etc/gocelsys/admin-initial.txt` : changez-le, puis supprimez ce fichier.
 
-Option `--demo` : charge les données de démonstration (à éviter en production réelle).
+Option `--demo` : `bash /root/installer.sh --demo` charge les données de démonstration (à éviter en production réelle).
 
 ## Mises à jour
 

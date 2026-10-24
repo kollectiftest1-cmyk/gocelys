@@ -15,13 +15,16 @@
 #   - PostgreSQL : un rôle et une base dédiés, rien d'autre n'est modifié ;
 #   - le pare-feu n'est jamais activé ; s'il l'est déjà, seuls 80/443 sont ouverts.
 #
-#  Usage :   sudo bash deploy.sh [options]          (1re fois, depuis une copie du script)
-#            sudo gocelsys-deploy [options]          (ensuite, installé par le 1er lancement)
+#  Usage (sur le serveur, en root) :
+#      git clone -b deploy https://github.com/COMPTE/gocelsys.git /opt/gocelsys
+#      bash /opt/gocelsys/deploy/deploy.sh            ← 1re fois : installation complète
+#      bash /opt/gocelsys/deploy/deploy.sh            ← ensuite : git pull + mise à jour
+#  (raccourci installé au 1er lancement : gocelsys-deploy)
 #
-#  Options : --repo URL       dépôt Git (sinon celui enregistré dans /etc/gocelsys/deploy.conf)
-#            --branch NOM     branche à déployer (défaut : deploy)
-#            --token JETON    jeton GitHub en lecture seule (dépôt privé en https://) ; gardé pour les mises à jour
-#            --email ADRESSE  e-mail Let's Encrypt (défaut : admin@DOMAINE)
+#  Domaines, IP et e-mail : deploy/config.env (versionné ; modifiez, poussez, relancez).
+#
+#  Options : --no-pull        déployer le code déjà présent, sans git pull
+#            --email ADRESSE  e-mail Let's Encrypt (sinon celui de config.env)
 #            --demo           1re installation : charger les données de démonstration
 #            --force          reconstruire même si la version n'a pas changé
 #            --no-ssl         ne pas demander de certificat HTTPS
@@ -34,12 +37,10 @@ umask 022
 
 # ----------------------------------------------------------------------------- réglages
 APP="gocelsys"
-DOMAIN="${DOMAIN:-gocelsys.com}"
-WWW_DOMAIN="${WWW_DOMAIN:-www.${DOMAIN}}"
-SERVER_IP="${SERVER_IP:-72.60.212.142}"
+# Dossier cloné depuis GitHub (celui qui contient ce script)
+SRC="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 APP_DIR="${APP_DIR:-/srv/gocelsys}"
 ETC_DIR="/etc/gocelsys"
-CONF_FILE="${ETC_DIR}/deploy.conf"
 ENV_FILE="${ETC_DIR}/gocelsys.env"
 LOG_DIR="/var/log/gocelsys"
 RUN_DIR="/run/gocelsys"
@@ -49,17 +50,15 @@ PY_VERSION="${PY_VERSION:-3.13}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
 KEEP_BACKUPS="${KEEP_BACKUPS:-10}"
-REPO_URL="${REPO_URL:-}"
-BRANCH="${BRANCH:-deploy}"
-LE_EMAIL="${LE_EMAIL:-}"
-GIT_TOKEN="${GIT_TOKEN:-}"
+CLI_EMAIL=""
 WORKERS="${WORKERS:-}"
 DB_NAME="${DB_NAME:-gocelsys}"
 DB_USER="${DB_USER:-gocelsys}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 
-OPT_DEMO=0 OPT_FORCE=0 OPT_NOSSL=0 OPT_STATUS=0 OPT_ROLLBACK=0
+OPT_DEMO=0 OPT_FORCE=0 OPT_NOSSL=0 OPT_STATUS=0 OPT_ROLLBACK=0 OPT_NOPULL=0
+ORIG_ARGS=("$@")
 
 # ----------------------------------------------------------------------------- affichage
 if [[ -t 1 ]]; then C_B=$'\e[1m' C_G=$'\e[32m' C_Y=$'\e[33m' C_R=$'\e[31m' C_C=$'\e[36m' C_0=$'\e[0m'; else C_B="" C_G="" C_Y="" C_R="" C_C="" C_0=""; fi
@@ -71,14 +70,12 @@ warn() { printf '  %s!%s %s\n' "$C_Y" "$C_0" "$*"; }
 die()  { printf '\n%s✘ %s%s\n' "$C_R$C_B" "$*" "$C_0" >&2; exit 1; }
 trap 'rc=$?; printf "\n%s✘ Échec pendant : %s (ligne %s, code %s)%s\n" "$C_R$C_B" "$STEP" "$LINENO" "$rc" "$C_0" >&2; printf "  Journal complet : %s\n" "${LOG_FILE:-}" >&2' ERR
 
-usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) REPO_URL="$2"; shift 2 ;;
-    --branch) BRANCH="$2"; shift 2 ;;
-    --email) LE_EMAIL="$2"; shift 2 ;;
-    --token) GIT_TOKEN="$2"; shift 2 ;;
+    --email) CLI_EMAIL="$2"; shift 2 ;;
+    --no-pull) OPT_NOPULL=1; shift ;;
     --demo) OPT_DEMO=1; shift ;;
     --force) OPT_FORCE=1; shift ;;
     --no-ssl) OPT_NOSSL=1; shift ;;
@@ -91,16 +88,41 @@ done
 
 [[ $EUID -eq 0 ]] || die "Lancez ce script en root : sudo bash $0"
 
-# Réglages enregistrés lors du premier déploiement (les options de la ligne de commande priment)
-if [[ -f "$CONF_FILE" ]]; then
-  _repo="$REPO_URL" _branch="$BRANCH" _email="$LE_EMAIL"
-  # shellcheck disable=SC1090
-  source "$CONF_FILE"
-  [[ -n "$_repo" ]] && REPO_URL="$_repo"
-  [[ "$_branch" != "deploy" ]] && BRANCH="$_branch"
-  [[ -n "$_email" ]] && LE_EMAIL="$_email"
+[[ -f "$SRC/backend/manage.py" && -f "$SRC/web/package.json" && -d "$SRC/.git" ]] \
+  || die "Lancez ce script depuis le dossier cloné depuis GitHub (il doit contenir backend/, web/ et .git)."
+
+# git sur le dossier cloné, avec l'utilisateur qui l'a cloné (ses identifiants GitHub restent les siens)
+SRC_OWNER="$(stat -c %U "$SRC")"
+git_src() {
+  if [[ "$SRC_OWNER" == "root" ]]; then git -c safe.directory="$SRC" -C "$SRC" "$@"
+  else runuser -u "$SRC_OWNER" -- git -c safe.directory="$SRC" -C "$SRC" "$@"; fi
+}
+
+# 1) Récupérer la dernière version (git pull), puis relancer la nouvelle version de ce script si elle a changé
+if [[ $OPT_NOPULL -eq 0 && $OPT_STATUS -eq 0 && $OPT_ROLLBACK -eq 0 ]]; then
+  printf '%s==> git pull (%s)%s\n' "$C_B$C_C" "$(git_src rev-parse --abbrev-ref HEAD)" "$C_0"
+  before="$(md5sum "$SRC/deploy/deploy.sh" | cut -d' ' -f1)"
+  if ! git_src pull --ff-only --quiet; then
+    die "git pull a échoué (identifiants GitHub, réseau, ou modifications locales sur le serveur).
+   Corrigez puis relancez, ou déployez le code déjà présent avec : bash $SRC/deploy/deploy.sh --no-pull"
+  fi
+  if [[ "$before" != "$(md5sum "$SRC/deploy/deploy.sh" | cut -d' ' -f1)" ]]; then
+    printf '  · Nouvelle version du script de déploiement : relance.\n'
+    exec bash "$SRC/deploy/deploy.sh" --no-pull "${ORIG_ARGS[@]}"
+  fi
 fi
+
+# 2) Réglages versionnés : domaines, IP, e-mail
+DOMAIN="gocelsys.com"; ALIASES=""; SERVER_IP=""; LE_EMAIL=""
+# shellcheck disable=SC1091
+[[ -f "$SRC/deploy/config.env" ]] && source "$SRC/deploy/config.env"
+[[ -n "$CLI_EMAIL" ]] && LE_EMAIL="$CLI_EMAIL"
 LE_EMAIL="${LE_EMAIL:-admin@${DOMAIN}}"
+[[ -n "$SERVER_IP" ]] || SERVER_IP="$(curl -4 -s --max-time 5 https://api.ipify.org || true)"
+# tous les noms servis : domaine principal + alias, avec et sans www
+ALL_NAMES=()
+for d in $DOMAIN $ALIASES; do ALL_NAMES+=("$d" "www.$d"); done
+csv() { local IFS=,; echo "$*"; }
 
 mkdir -p "$LOG_DIR"
 LOG_FILE="${LOG_DIR}/deploy-$(date +%Y%m%d-%H%M%S).log"
@@ -114,9 +136,8 @@ flock -n 9 || die "Un autre déploiement Gocelsys est déjà en cours."
 FIRST_INSTALL=1
 [[ -L "${APP_DIR}/current" ]] && FIRST_INSTALL=0
 
-as_app() { runuser -u "$APP" -- env -C "$APP_DIR" HOME="$APP_DIR" UV_NO_CONFIG=1 GIT_TERMINAL_PROMPT=0 PATH="${APP_DIR}/tools/node/bin:${APP_DIR}/tools/uv:/usr/local/bin:/usr/bin:/bin" \
-  UV_CACHE_DIR="${APP_DIR}/.cache/uv" UV_PYTHON_INSTALL_DIR="${APP_DIR}/tools/python" npm_config_cache="${APP_DIR}/.cache/npm" \
-  GIT_SSH_COMMAND="ssh -i ${APP_DIR}/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" "$@"; }
+as_app() { runuser -u "$APP" -- env -C "$APP_DIR" HOME="$APP_DIR" UV_NO_CONFIG=1 PATH="${APP_DIR}/tools/node/bin:${APP_DIR}/tools/uv:/usr/local/bin:/usr/bin:/bin" \
+  UV_CACHE_DIR="${APP_DIR}/.cache/uv" UV_PYTHON_INSTALL_DIR="${APP_DIR}/tools/python" npm_config_cache="${APP_DIR}/.cache/npm" "$@"; }
 # manage.py avec les variables de production
 manage() { local dir="$1"; shift; as_app bash -c "set -a; . '$ENV_FILE'; set +a; cd '$dir/backend' && exec '${APP_DIR}/venv/bin/python' manage.py \"\$@\"" _ "$@"; }
 
@@ -213,11 +234,13 @@ for p in "$P80" "$P443"; do
 done
 ok "Ports web : ${P80:-libre}/${P443:-libre}"
 
-# Un autre site Nginx déclare-t-il déjà ce domaine ?
+# Un autre site Nginx déclare-t-il déjà l'un de nos domaines ?
 if [[ -d /etc/nginx ]]; then
-  clash="$(grep -rlE "server_name[^;]*[[:space:]](www\.)?${DOMAIN//./\\.}[[:space:];]" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | xargs -r readlink -f | grep -vE '/gocelsys\.conf(\.bak)?$' || true)"
-  [[ -z "$clash" ]] || die "Le domaine ${DOMAIN} est déjà déclaré dans : ${clash}
+  for d in $DOMAIN $ALIASES; do
+    clash="$(grep -rlE "server_name[^;]*[[:space:]](www\.)?${d//./\\.}[[:space:];]" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | xargs -r readlink -f | grep -vE '/gocelsys\.conf(\.bak)?$' || true)"
+    [[ -z "$clash" ]] || die "Le domaine ${d} est déjà déclaré dans : ${clash}
    Retirez-le de ce fichier (ou supprimez ce site) puis relancez."
+  done
 fi
 
 if [[ "$DB_HOST" == "localhost" || "$DB_HOST" == "127.0.0.1" ]]; then
@@ -229,17 +252,15 @@ if [[ "$DB_HOST" == "localhost" || "$DB_HOST" == "127.0.0.1" ]]; then
   fi
 fi
 
-if [[ -z "$REPO_URL" ]]; then
-  if [[ -t 0 ]]; then read -rp "  URL du dépôt Git (ex. git@github.com:compte/gocelsys.git) : " REPO_URL; fi
-  [[ -n "$REPO_URL" ]] || die "Dépôt Git inconnu : relancez avec --repo URL."
-fi
-ok "Dépôt : ${REPO_URL} (branche ${BRANCH})"
+ok "Code : ${SRC} (branche $(git_src rev-parse --abbrev-ref HEAD))"
+ok "Domaines : ${DOMAIN} (principal) ${ALIASES:+· ${ALIASES} (redirigés vers ${DOMAIN})}"
+[[ -n "$SERVER_IP" ]] && info "IP publique attendue dans les DNS : ${SERVER_IP}"
 [[ $FIRST_INSTALL -eq 1 ]] && info "Mode : PREMIÈRE INSTALLATION" || info "Mode : MISE À JOUR"
 
 # ============================================================================= 2. paquets
 step "Paquets système (seulement ceux qui manquent)"
 need=()
-for pkg in git openssh-client curl ca-certificates openssl xz-utils nginx; do
+for pkg in git curl ca-certificates openssl xz-utils nginx; do
   dpkg -s "$pkg" >/dev/null 2>&1 || need+=("$pkg")
 done
 command -v certbot >/dev/null 2>&1 || need+=(certbot)
@@ -270,25 +291,12 @@ if ! id "$APP" >/dev/null 2>&1; then
   ok "Utilisateur « $APP » créé"
 fi
 install -d -m 0755 -o "$APP" -g "$APP" "$APP_DIR" "$APP_DIR"/{releases,tools,.cache,backups}
-install -d -m 0750 -o "$APP" -g "$APP" "$APP_DIR"/repo
 install -d -m 0755 -o "$APP" -g "$NGX_GROUP" "$APP_DIR"/shared "$APP_DIR"/shared/static
 install -d -m 2775 -o "$APP" -g "$NGX_GROUP" "$APP_DIR"/shared/media
-install -d -m 0700 -o "$APP" -g "$APP" "$APP_DIR"/.ssh
 install -d -m 0750 -o root -g "$APP" "$ETC_DIR"
 install -d -m 0755 "$ACME_ROOT"
 chmod 0711 "$APP_DIR"/backups && chown postgres:"$APP" "$APP_DIR"/backups 2>/dev/null || true
 ok "${APP_DIR}"
-
-# Réglages persistants (relus par les mises à jour)
-cat > "$CONF_FILE" <<EOF
-# Réglages du déploiement Gocelsys (modifiables ; relus à chaque lancement)
-REPO_URL="${REPO_URL}"
-BRANCH="${BRANCH}"
-LE_EMAIL="${LE_EMAIL}"
-DOMAIN="${DOMAIN}"
-WORKERS="${WORKERS}"
-EOF
-chmod 0640 "$CONF_FILE"; chown root:"$APP" "$CONF_FILE"
 
 # ============================================================================= 4. variables d'environnement
 step "Configuration de l'application (${ENV_FILE})"
@@ -307,9 +315,9 @@ fi
 chmod 0640 "$ENV_FILE"; chown root:"$APP" "$ENV_FILE"
 set_env GOCELSYS_DEBUG false
 set_env GOCELSYS_SECRET_KEY "$(rand 64)"
-set_env GOCELSYS_ALLOWED_HOSTS "${DOMAIN},${WWW_DOMAIN},localhost"
-set_env GOCELSYS_CSRF_TRUSTED_ORIGINS "https://${DOMAIN},https://${WWW_DOMAIN}"
-set_env GOCELSYS_CORS_ORIGINS "https://${DOMAIN}"
+set_env GOCELSYS_ALLOWED_HOSTS "$(csv "${ALL_NAMES[@]}" localhost)" --force
+set_env GOCELSYS_CSRF_TRUSTED_ORIGINS "$(csv "${ALL_NAMES[@]/#/https://}")" --force
+set_env GOCELSYS_CORS_ORIGINS "https://${DOMAIN}" --force
 set_env GOCELSYS_DB_NAME "$DB_NAME"
 set_env GOCELSYS_DB_USER "$DB_USER"
 set_env GOCELSYS_DB_PASSWORD "$(rand 32)"
@@ -378,74 +386,21 @@ fi
 ok "Node $("${APP_DIR}/tools/node/bin/node" -v) (le Node du système n'est pas touché)"
 
 # ============================================================================= 7. code source
-step "Récupération du code (${BRANCH})"
-if [[ "$REPO_URL" =~ ^(git@|ssh://) ]]; then
-  if [[ ! -f "${APP_DIR}/.ssh/id_ed25519" ]]; then
-    as_app ssh-keygen -q -t ed25519 -N "" -C "gocelsys-deploy@$(hostname)" -f "${APP_DIR}/.ssh/id_ed25519"
-  fi
-  if ! as_app git ls-remote --heads "$REPO_URL" "$BRANCH" >/dev/null 2>&1; then
-    printf '\n%sLe serveur n'"'"'a pas encore accès au dépôt.%s\n' "$C_Y$C_B" "$C_0"
-    echo "  Ajoutez cette clé dans GitHub → dépôt → Settings → Deploy keys → Add deploy key"
-    echo "  (titre : VPS Gocelsys, NE PAS cocher « Allow write access ») :"
-    echo; echo "  $(cat "${APP_DIR}/.ssh/id_ed25519.pub")"; echo
-    echo "  Puis relancez : sudo bash $0 --repo ${REPO_URL}"
-    trap - ERR; exit 3
-  fi
-fi
-if [[ "$REPO_URL" =~ ^https:// ]]; then
-  # Dépôt en https : public, ou privé avec un jeton GitHub en lecture seule (gardé pour les mises à jour)
-  CRED_FILE="${APP_DIR}/.git-credentials"
-  GIT_HOST="$(sed -E 's#^https://([^/@]+@)?([^/]+)/.*#\2#' <<< "$REPO_URL")"
-  save_token() {
-    printf 'https://x-access-token:%s@%s\n' "$1" "$GIT_HOST" > "$CRED_FILE"
-    chown "$APP":"$APP" "$CRED_FILE"; chmod 0600 "$CRED_FILE"
-    as_app git config --global credential.helper "store --file=${CRED_FILE}"
-  }
-  [[ -n "$GIT_TOKEN" ]] && save_token "$GIT_TOKEN"
-  if ! as_app git ls-remote --exit-code --heads "$REPO_URL" "$BRANCH" >/dev/null 2>&1; then
-    if as_app git ls-remote "$REPO_URL" >/dev/null 2>&1; then
-      die "Le dépôt est accessible mais la branche « ${BRANCH} » n'existe pas encore : lancez publier-vps.bat sur votre PC."
-    fi
-    if [[ -z "$GIT_TOKEN" && -t 0 ]]; then
-      echo "  Le dépôt est privé (ou l'adresse est fausse). Collez un jeton GitHub en lecture seule"
-      echo "  (GitHub → Settings → Developer settings → Fine-grained tokens → dépôt gocelsys → Contents : Read-only)."
-      read -rsp "  Jeton (la saisie reste masquée) : " GIT_TOKEN; echo
-      [[ -n "$GIT_TOKEN" ]] && save_token "$GIT_TOKEN"
-    fi
-    as_app git ls-remote --exit-code --heads "$REPO_URL" "$BRANCH" >/dev/null 2>&1 \
-      || die "Accès refusé à ${REPO_URL} : vérifiez l'adresse et le jeton (droit Contents : Read-only sur ce dépôt, non expiré)."
-  fi
-  ok "Accès au dépôt vérifié$([[ -f "$CRED_FILE" ]] && echo " (jeton enregistré pour les mises à jour)")"
-fi
-if [[ ! -d "${APP_DIR}/repo/.git" ]]; then
-  as_app git clone --quiet --branch "$BRANCH" --single-branch "$REPO_URL" "${APP_DIR}/repo" \
-    || die "Clonage impossible : vérifiez l'URL, la branche « ${BRANCH} » et l'accès au dépôt."
-else
-  as_app git -C "${APP_DIR}/repo" remote set-url origin "$REPO_URL"
-  as_app git -C "${APP_DIR}/repo" fetch --quiet --prune origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
-  as_app git -C "${APP_DIR}/repo" checkout --quiet -B "$BRANCH" "origin/${BRANCH}"
-  as_app git -C "${APP_DIR}/repo" reset --quiet --hard "origin/${BRANCH}"
-fi
-SHA="$(as_app git -C "${APP_DIR}/repo" rev-parse HEAD)"
+step "Code à déployer"
+SHA="$(git_src rev-parse HEAD)"
 SHORT="${SHA:0:7}"
-MSG="$(as_app git -C "${APP_DIR}/repo" log -1 --format='%s (%cr)')"
+MSG="$(git_src log -1 --format='%s (%cr)')"
 ok "Commit ${SHORT} — ${MSG}"
-[[ -f "${APP_DIR}/repo/backend/manage.py" && -f "${APP_DIR}/repo/web/package.json" ]] || die "La branche ${BRANCH} ne contient pas backend/ et web/."
+if [[ -n "$(git_src status --porcelain --untracked-files=no)" ]]; then
+  warn "Des fichiers ont été modifiés à la main sur le serveur : ils sont ignorés (seul le code commité est déployé)."
+fi
 
-# Commande « gocelsys-deploy » : lance toujours la dernière version de ce script
+# Raccourci « gocelsys-deploy » : git pull + déploiement depuis ce dossier
 cat > /usr/local/bin/gocelsys-deploy <<EOF
 #!/usr/bin/env bash
-# Gocelsys : met à jour depuis la branche « ${BRANCH} » avec la dernière version du script de déploiement.
-set -euo pipefail
+# Gocelsys : récupère la dernière version (git pull dans ${SRC}) et la déploie.
 [[ \$EUID -eq 0 ]] || exec sudo "\$0" "\$@"
-. ${CONF_FILE}
-if ! runuser -u ${APP} -- env -C ${APP_DIR} HOME=${APP_DIR} GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -i ${APP_DIR}/.ssh/id_ed25519 -o IdentitiesOnly=yes" \\
-     git -C ${APP_DIR}/repo fetch --quiet origin "+refs/heads/\${BRANCH}:refs/remotes/origin/\${BRANCH}"; then
-  echo "! Dépôt injoignable (réseau, ou jeton GitHub expiré : ajoutez --token NOUVEAU_JETON). Script local utilisé." >&2
-fi
-tmp="\$(mktemp /tmp/gocelsys-deploy.XXXXXX.sh)"
-runuser -u ${APP} -- env -C ${APP_DIR} HOME=${APP_DIR} git -C ${APP_DIR}/repo show "origin/\${BRANCH}:deploy/deploy.sh" > "\$tmp"
-exec bash "\$tmp" "\$@"
+exec bash "${SRC}/deploy/deploy.sh" "\$@"
 EOF
 chmod 0755 /usr/local/bin/gocelsys-deploy
 
@@ -461,7 +416,8 @@ else
   RELEASE="${APP_DIR}/releases/$(date +%Y%m%d-%H%M%S)-${SHORT}"
   step "Construction de la version ${SHORT}"
   install -d -o "$APP" -g "$NGX_GROUP" -m 0755 "$RELEASE"
-  as_app bash -c "git -C '${APP_DIR}/repo' archive --format=tar '${SHA}' backend web deploy | tar -x -C '${RELEASE}'"
+  git_src archive --format=tar "$SHA" backend web deploy | tar -x -C "$RELEASE"
+  chown -R "$APP":"$NGX_GROUP" "$RELEASE"
   echo "$SHA" > "${RELEASE}/.sha"
   ok "Code extrait dans $(basename "$RELEASE")"
 
@@ -473,7 +429,7 @@ else
     cp -a "${CURRENT}/web/node_modules" "${RELEASE}/web/node_modules"
     info "Dépendances web réutilisées"
   else
-    as_app bash -c "cd '${RELEASE}/web' && npm ci --no-audit --no-fund --loglevel=error"
+    as_app bash -c "cd '${RELEASE}/web' && npm_config_update_notifier=false npm ci --no-audit --no-fund --loglevel=error" >/dev/null
   fi
   build_log="$(mktemp)"; chmod 0666 "$build_log"
   if ! as_app bash -c "cd '${RELEASE}/web' && NODE_OPTIONS=--max-old-space-size=${NODE_HEAP} VITE_API_URL= npm run build" > "$build_log" 2>&1 \
@@ -539,8 +495,13 @@ if [[ $FIRST_INSTALL -eq 1 ]]; then
   fi
   ADMIN_PW="$(sed -n 's/^Mot de passe : //p' "$ADMIN_PW_FILE")"
   pwtmp="$(mktemp)"; printf '%s' "$ADMIN_PW" > "$pwtmp"; chown "$APP" "$pwtmp"; chmod 0600 "$pwtmp"
-  manage "$RELEASE" bootstrap --admin admin --password-file "$pwtmp" --email "$LE_EMAIL"
-  rm -f "$pwtmp"
+  boot_out="$(manage "$RELEASE" bootstrap --admin admin --password-file "$pwtmp" --email "$LE_EMAIL")"
+  rm -f "$pwtmp"; printf '%s\n' "$boot_out"
+  # base déjà existante (réinstallation) : le compte admin n'a pas été recréé, ce mot de passe ne sert à rien
+  if ! grep -q "compte administrateur" <<< "$boot_out" && [[ $OPT_DEMO -eq 0 ]]; then
+    rm -f "$ADMIN_PW_FILE"
+    warn "La base contenait déjà des comptes : ils sont conservés avec leurs mots de passe."
+  fi
 else
   manage "$RELEASE" bootstrap
 fi
@@ -680,9 +641,9 @@ L6_80="" L6_443=""
 if [[ -f /proc/net/if_inet6 ]]; then L6_80="    listen [::]:80;"; L6_443="    listen [::]:443 ssl"; fi
 ver_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]; }
 
-render_nginx() { # $1 = 1 avec HTTPS, 0 sans ; $2 = 1 si www est couvert
-  local ssl="$1" www="$2" names="${DOMAIN}" h2_listen="" h2_line=""
-  [[ "$www" == "1" ]] && names="${DOMAIN} ${WWW_DOMAIN}"
+render_nginx() { # $1 = 1 avec HTTPS (noms du certificat dans CERT_NAMES), 0 sans
+  local ssl="$1" names="${ALL_NAMES[*]}" h2_listen="" h2_line="" n others_443=()
+  for n in "${CERT_NAMES[@]}"; do [[ "$n" != "$DOMAIN" ]] && others_443+=("$n"); done
   if ver_ge "$NGX_VER" "1.25.1"; then
     h2_line="    http2 on;"            # directive propre au bloc server : n'affecte pas les autres sites
   else
@@ -783,15 +744,17 @@ EOF
     }
 }
 EOF
-    if [[ "$www" == "1" ]]; then
+    if (( ${#others_443[@]} )); then
       cat <<EOF
 
+# www et autres domaines (.fr, .online…) → domaine principal
 server {
     listen 443 ssl${h2_listen};
 ${L6_443:+${L6_443}${h2_listen};}
 ${h2_line}
-    server_name ${WWW_DOMAIN};
+    server_name ${others_443[*]};
     include ${ETC_DIR}/nginx-ssl.conf;
+    include ${ETC_DIR}/nginx-headers.conf;
     return 301 https://${DOMAIN}\$request_uri;
 }
 EOF
@@ -818,7 +781,7 @@ EOF
   fi
 }
 
-install_nginx() { # $1 ssl, $2 www — installe, teste, recharge ; restaure en cas d'erreur
+install_nginx() { # $1 = 1 avec HTTPS — installe, teste, recharge ; restaure en cas d'erreur
   {
     echo "# Géré par deploy.sh — en-têtes de sécurité (inclus dans chaque location qui ajoute ses propres en-têtes)"
     echo "add_header X-Content-Type-Options nosniff always;"
@@ -828,7 +791,7 @@ install_nginx() { # $1 ssl, $2 www — installe, teste, recharge ; restaure en c
   } > "${ETC_DIR}/nginx-headers.conf"
   chmod 0644 "${ETC_DIR}/nginx-headers.conf"
   local new; new="$(mktemp)"
-  render_nginx "$1" "$2" | awk 'NF || prev {print} {prev=NF}' > "$new"
+  render_nginx "$1" | awk 'NF || prev {print} {prev=NF}' > "$new"
   if [[ -f "$NGX_CONF" ]] && cmp -s "$new" "$NGX_CONF"; then rm -f "$new"; ok "Configuration Nginx inchangée"; return 0; fi
   local backup=""
   [[ -f "$NGX_CONF" ]] && backup="${NGX_CONF}.bak" && cp -a "$NGX_CONF" "$backup"
@@ -878,36 +841,41 @@ ssl_session_tickets off;
 EOF
 chmod 0644 "${ETC_DIR}"/nginx-*.conf
 
-resolves_here() { { getent ahostsv4 "$1" 2>/dev/null || true; } | awk '{print $1}' | sort -u | grep -qx "$SERVER_IP"; }
-cert_has() { openssl x509 -noout -ext subjectAltName -in "${CERT_DIR}/fullchain.pem" 2>/dev/null | grep -q "DNS:$1"; }
+resolves_here() { [[ -n "$SERVER_IP" ]] && { getent ahostsv4 "$1" 2>/dev/null || true; } | awk '{print $1}' | sort -u | grep -qx "$SERVER_IP"; }
+cert_names() { openssl x509 -noout -ext subjectAltName -in "${CERT_DIR}/fullchain.pem" 2>/dev/null | grep -o 'DNS:[^,[:space:]]*' | cut -d: -f2; }
+in_list() { local x="$1"; shift; local y; for y in "$@"; do [[ "$x" == "$y" ]] && return 0; done; return 1; }
 
-HAVE_CERT=0; WWW_OK=0
-[[ -f "${CERT_DIR}/fullchain.pem" ]] && HAVE_CERT=1
-resolves_here "$WWW_DOMAIN" && WWW_OK=1
-WWW_IN_CERT=0; [[ $HAVE_CERT == 1 ]] && cert_has "$WWW_DOMAIN" && WWW_IN_CERT=1
+HAVE_CERT=0; CERT_NAMES=(); OK_NAMES=(); PENDING=(); MISSING=()
+if [[ -f "${CERT_DIR}/fullchain.pem" ]]; then HAVE_CERT=1; mapfile -t CERT_NAMES < <(cert_names); fi
+for n in "${ALL_NAMES[@]}"; do
+  if resolves_here "$n"; then OK_NAMES+=("$n"); in_list "$n" "${CERT_NAMES[@]}" || MISSING+=("$n"); else PENDING+=("$n"); fi
+done
 
-if [[ $HAVE_CERT == 1 ]]; then install_nginx 1 "$WWW_IN_CERT"; else install_nginx 0 "$WWW_OK"; fi
+install_nginx "$HAVE_CERT"
 
 if [[ $OPT_NOSSL -eq 0 ]]; then
   step "Certificat HTTPS (Let's Encrypt)"
-  if [[ $HAVE_CERT == 1 && ! ( $WWW_OK == 1 && $WWW_IN_CERT == 0 ) ]]; then
+  if [[ $HAVE_CERT == 1 && ${#MISSING[@]} -eq 0 ]]; then
     ok "Certificat valide jusqu'au $(openssl x509 -enddate -noout -in "${CERT_DIR}/fullchain.pem" | cut -d= -f2) (renouvelé automatiquement par certbot)"
-  elif ! resolves_here "$DOMAIN"; then
+    info "Couvre : ${CERT_NAMES[*]}"
+  elif ! in_list "$DOMAIN" "${OK_NAMES[@]}"; then
     warn "${DOMAIN} ne pointe pas encore vers ${SERVER_IP} (DNS actuel : $( { getent ahostsv4 "$DOMAIN" || true; } | awk '{print $1}' | sort -u | tr '\n' ' ' ))."
-    warn "Créez un enregistrement A « @ » et « www » vers ${SERVER_IP}, puis relancez : le certificat sera demandé automatiquement."
-  elif [[ $HAVE_CERT == 0 || ( $WWW_OK == 1 && $WWW_IN_CERT == 0 ) ]]; then
-    domains=(-d "$DOMAIN"); [[ $WWW_OK == 1 ]] && domains+=(-d "$WWW_DOMAIN")
+    warn "Créez les enregistrements A (« @ » et « www ») vers ${SERVER_IP}, puis relancez : le certificat sera demandé automatiquement."
+  else
+    # le domaine principal d'abord (nom du certificat), puis tous les autres noms qui pointent déjà ici
+    domains=(-d "$DOMAIN"); for n in "${OK_NAMES[@]}"; do [[ "$n" != "$DOMAIN" ]] && domains+=(-d "$n"); done
     if certbot certonly --webroot -w "$ACME_ROOT" --cert-name "$DOMAIN" "${domains[@]}" \
          --email "$LE_EMAIL" --agree-tos --no-eff-email --non-interactive --keep-until-expiring --expand \
          --deploy-hook "systemctl reload nginx" >/dev/null 2>&1; then
-      ok "Certificat obtenu pour ${domains[*]//-d /}"
-      HAVE_CERT=1; WWW_IN_CERT=$WWW_OK
-      install_nginx 1 "$WWW_IN_CERT"
+      HAVE_CERT=1; mapfile -t CERT_NAMES < <(cert_names)
+      ok "Certificat obtenu pour : ${CERT_NAMES[*]}"
+      install_nginx 1
     else
-      warn "Let's Encrypt a refusé la demande (détails : /var/log/letsencrypt/letsencrypt.log). Le site reste en HTTP."
+      warn "Let's Encrypt a refusé la demande (détails : /var/log/letsencrypt/letsencrypt.log). Le site reste $( [[ $HAVE_CERT == 1 ]] && echo "sur l'ancien certificat" || echo en HTTP )."
     fi
-  else
-    ok "Certificat valide jusqu'au $(openssl x509 -enddate -noout -in "${CERT_DIR}/fullchain.pem" | cut -d= -f2)"
+  fi
+  if (( ${#PENDING[@]} )); then
+    info "Pas encore dans le DNS (ajoutés au certificat dès qu'ils pointeront vers ${SERVER_IP}, au prochain lancement) : ${PENDING[*]}"
   fi
   if [[ $HAVE_CERT == 1 ]] && ! systemctl list-timers --all 2>/dev/null | grep -q certbot && ! [[ -f /etc/cron.d/certbot ]]; then
     warn "Aucun renouvellement automatique certbot détecté : ajoutez « certbot renew -q » à cron."
@@ -955,14 +923,19 @@ printf '\n%s══════════════════════�
 if [[ $FIRST_INSTALL -eq 1 ]]; then
   printf '%s  Gocelsys est installé.%s\n' "$C_G$C_B" "$C_0"
   echo "  Site et gestion : ${SCHEME}://${DOMAIN}"
-  echo "  Connexion       : admin / $(sed -n 's/^Mot de passe : //p' "$ADMIN_PW_FILE")"
-  echo "                    (gardé dans ${ADMIN_PW_FILE} — changez-le puis supprimez ce fichier)"
+  if [[ -f "$ADMIN_PW_FILE" ]]; then
+    echo "  Connexion       : admin / $(sed -n 's/^Mot de passe : //p' "$ADMIN_PW_FILE")"
+    echo "                    (gardé dans ${ADMIN_PW_FILE} — changez-le puis supprimez ce fichier)"
+  else
+    echo "  Connexion       : comptes existants de la base (mots de passe inchangés)"
+  fi
   echo "  Apps mobiles    : adresse du serveur = ${SCHEME}://${DOMAIN}"
 else
   printf '%s  Gocelsys est à jour : version %s.%s\n' "$C_G$C_B" "$SHORT" "$C_0"
   echo "  ${SCHEME}://${DOMAIN}"
 fi
-echo "  Mettre à jour   : sudo gocelsys-deploy        État : sudo gocelsys-deploy --status"
-echo "  Revenir arrière : sudo gocelsys-deploy --rollback"
+echo "  Mettre à jour   : git push sur votre PC, puis ici : gocelsys-deploy   (= git pull + déploiement)"
+echo "  État            : gocelsys-deploy --status"
+echo "  Revenir arrière : gocelsys-deploy --rollback"
 echo "  Journaux        : journalctl -u gocelsys-api -f      (déploiement : ${LOG_FILE})"
 printf '%s══════════════════════════════════════════════════════════════════%s\n' "$C_G$C_B" "$C_0"

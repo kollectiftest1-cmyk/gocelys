@@ -1,44 +1,69 @@
-# Gocelsys — branche de déploiement (VPS)
+# Gocelsys — déploiement sur le VPS
 
-Cette branche ne contient que ce qui tourne sur le serveur :
+Cette branche (`deploy`) ne contient que ce qui tourne sur le serveur :
 
 ```
 backend/   API Django (gunicorn + PostgreSQL)
 web/       site public, boutique et espace de gestion (React, compilé sur le serveur)
-deploy/    deploy.sh — installation et mises à jour
+deploy/    deploy.sh (installation et mises à jour) + config.env (domaines, IP, e-mail)
 ```
 
-Elle est **générée automatiquement** depuis `main` par `publier-vps.bat` (Windows) ou `scripts/publier-vps.sh`.
-Ne la modifiez pas à la main : travaillez sur `main`, puis publiez.
+Elle est **reconstruite automatiquement par GitHub** à chaque `git push` sur `main` (action « Branche deploy »).
+Ne la modifiez pas : travaillez sur `main`.
 
-## Première installation (une seule fois, depuis le terminal du navigateur)
+## Les 3 gestes
 
-Prérequis :
-- `gocelsys.com` et `www` pointent vers `72.60.212.142` (enregistrements A) ;
-- la branche `deploy` est sur GitHub (`publier-vps.bat` sur votre PC).
-
-Dans le terminal du serveur, passez root (`sudo -i` si besoin). Collez ensuite **tout le bloc** du fichier [`installer.sh`](installer.sh), précédé de `cat > /root/installer.sh <<'GOCELSYS'` et suivi d'une ligne `GOCELSYS`. Lancez enfin :
-
+**Sur votre PC** — comme d'habitude :
 ```bash
-bash /root/installer.sh
+git add -A && git commit -m "…" && git push
 ```
 
-L'installateur :
-1. demande l'URL SSH du dépôt (`git@github.com:COMPTE/gocelsys.git`) et un e-mail ;
-2. affiche une **clé de déploiement** et attend. Ajoutez-la dans GitHub → dépôt → Settings → Deploy keys → Add deploy key, **sans** cocher l'écriture, puis appuyez sur Entrée ;
-3. clone la branche `deploy` et lance l'installation complète.
+**Sur le serveur, la première fois** (terminal du navigateur, en root) :
+```bash
+git clone -b deploy https://github.com/COMPTE/gocelsys.git /opt/gocelsys
+bash /opt/gocelsys/deploy/deploy.sh
+```
 
-À la fin, il affiche l'adresse du site et le mot de passe `admin`. Ce mot de passe est aussi gardé dans `/etc/gocelsys/admin-initial.txt` : changez-le, puis supprimez ce fichier.
+**Sur le serveur, ensuite** :
+```bash
+gocelsys-deploy
+```
 
-Option `--demo` : `bash /root/installer.sh --demo` charge les données de démonstration (à éviter en production réelle).
+`gocelsys-deploy` fait `git pull`, puis met en ligne la nouvelle version.
 
-## Mises à jour
+## Dépôt privé : identifiants GitHub sur le serveur
+
+Au `git clone`, GitHub demande un nom d'utilisateur et un mot de passe. Le mot de passe est un **jeton** :
+1. GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token ;
+2. Repository access : seulement `gocelsys` ;
+3. Permissions → Contents : **Read-only**.
+
+Pour que les `git pull` suivants ne redemandent rien, tapez une fois, avant le clone :
+```bash
+git config --global credential.helper store
+```
+
+## Domaines
+
+Ils sont réglés dans `deploy/config.env` :
+
+| | Domaines |
+|---|---|
+| Principal | `gocelsys.com` |
+| Redirigés vers le principal | `gocelsys.fr`, `gocelsys.online` (avec et sans `www`) |
+
+Chez chaque registraire, créez deux enregistrements **A** vers `72.60.212.142` : `@` et `www`.
+
+Le certificat HTTPS couvre tous les noms qui pointent déjà vers le serveur. Un domaine configuré plus tard est ajouté automatiquement au lancement suivant de `gocelsys-deploy`.
+
+## Commandes
 
 ```bash
-sudo gocelsys-deploy             # récupère la dernière version de la branche deploy et la met en ligne
-sudo gocelsys-deploy --status    # état, version en ligne, certificat, sauvegardes
-sudo gocelsys-deploy --rollback  # revient à la version précédente
-sudo gocelsys-deploy --force     # reconstruit même si la version n'a pas changé
+gocelsys-deploy               # git pull + mise à jour (reconstruit seulement si le code a changé)
+gocelsys-deploy --status      # version en ligne, services, certificat, sauvegardes
+gocelsys-deploy --rollback    # revenir à la version précédente
+gocelsys-deploy --force       # reconstruire même sans changement
+gocelsys-deploy --no-pull     # déployer le code déjà présent, sans git pull
 ```
 
 Chaque mise à jour :
@@ -47,26 +72,26 @@ Chaque mise à jour :
 3. applique les migrations ;
 4. bascule, puis vérifie que l'API répond.
 
-Si l'API ne répond pas, le script revient tout seul à la version précédente et le site reste en ligne.
+Si l'API ne répond pas, le script revient seul à la version précédente.
 
 ## Ce que le script installe — et ce qu'il ne touche pas
 
 | Élément | Gocelsys | Autres applications du serveur |
 |---|---|---|
-| Code | `/srv/gocelsys/releases/<date>-<commit>`, lien `current` | — |
+| Code en ligne | `/srv/gocelsys/releases/<date>-<commit>`, lien `current` | — |
 | Photos, fichiers statiques | `/srv/gocelsys/shared/{media,static}` (conservés entre versions) | — |
 | Python 3.13, Node 22 | privés : `/srv/gocelsys/tools` | versions du système inchangées |
 | API | service `gocelsys-api` (gunicorn), socket Unix `/run/gocelsys/gunicorn.sock` | aucun port réservé |
 | Tâches | `gocelsys-alerts.timer` (15 min), `gocelsys-backup.timer` (02:30) | — |
 | Nginx | **un seul fichier** `gocelsys.conf`, testé (`nginx -t`) avant `reload`, restauré si erreur | autres sites jamais modifiés, Nginx jamais redémarré |
 | PostgreSQL | rôle et base `gocelsys` | autres bases et `pg_hba.conf` inchangés |
-| HTTPS | certificat Let's Encrypt `gocelsys.com` (+ `www`), renouvelé par certbot | autres certificats inchangés |
+| HTTPS | certificat Let's Encrypt `gocelsys.com` (+ alias), renouvelé par certbot | autres certificats inchangés |
 | Pare-feu | jamais activé ; s'il l'est déjà, ouvre 80/443 | règles existantes conservées |
 | Paquets | installe seulement ceux qui manquent | jamais d'`apt upgrade` |
 
 Le script s'arrête sans rien changer dans ces cas :
-- le port 80/443 est tenu par autre chose que Nginx (Apache, Caddy, Traefik, conteneur) ;
-- le domaine est déjà déclaré dans un autre site Nginx ;
+- le port 80/443 est tenu par autre chose que Nginx ;
+- un de nos domaines est déjà déclaré dans un autre site Nginx ;
 - le port 5432 est pris par un PostgreSQL en conteneur.
 
 ## Fichiers utiles sur le serveur
@@ -74,7 +99,7 @@ Le script s'arrête sans rien changer dans ces cas :
 | Fichier | Rôle |
 |---|---|
 | `/etc/gocelsys/gocelsys.env` | secrets et réglages (conservés à chaque mise à jour) |
-| `/etc/gocelsys/deploy.conf` | dépôt, branche, e-mail Let's Encrypt |
+| `/etc/gocelsys/admin-initial.txt` | mot de passe `admin` créé à l'installation (à changer, puis supprimer ce fichier) |
 | `/srv/gocelsys/backups/` | sauvegardes de la base (avant chaque mise à jour + quotidienne) |
 | `/var/log/gocelsys/deploy-*.log` | journaux des déploiements |
 | `journalctl -u gocelsys-api -f` | journal de l'API en direct |
@@ -83,7 +108,7 @@ Restaurer une sauvegarde :
 
 ```bash
 sudo -u postgres pg_restore --clean --if-exists -d gocelsys /srv/gocelsys/backups/<fichier>.dump
-sudo systemctl restart gocelsys-api
+systemctl restart gocelsys-api
 ```
 
 ## Applications mobiles

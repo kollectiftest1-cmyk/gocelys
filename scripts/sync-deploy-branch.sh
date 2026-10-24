@@ -30,6 +30,7 @@ if [ -n "$PARENT" ] && [ "$(git show -s --format=%T "$PARENT")" = "$TREE" ]; the
   exit 0
 fi
 SHORT="$(git rev-parse --short "$SRC")"
+[ "$SRC" = "HEAD" ] && SRC="$(git rev-parse --abbrev-ref HEAD | sed 's/^HEAD$/main/')"
 COMMIT="$(git commit-tree "$TREE" ${PARENT:+-p "$PARENT"} -m "Déploiement : $SRC@$SHORT" -m "$(git log -1 --format=%s "$SRC")")"
 git update-ref "refs/heads/$DST" "$COMMIT"
 echo "Branche « $DST » mise à jour : $(git rev-parse --short "$COMMIT") (depuis $SRC@$SHORT)."

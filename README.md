@@ -10,9 +10,9 @@ Joda/
 ├── mobile/
 │   ├── mobile-entreprise/   App Expo du personnel : caisse hors ligne, stock, livreur
 │   └── mobile-exterieur/    App Expo des clients : catalogue, panier, commande, suivi
-├── deploy/                  deploy.sh : installation et mises à jour sur le VPS (voir deploy/README.md)
-├── scripts/                 sync-deploy-branch.sh, publier-vps.sh
-├── publier-vps.bat          Publier une version (main → deploy → GitHub → serveur)
+├── deploy/                  deploy.sh + config.env : installation et mises à jour sur le VPS
+├── scripts/                 sync-deploy-branch.sh (utilisé par l'action GitHub)
+├── .github/workflows/       branche-deploy.yml : construit la branche deploy à chaque push
 ├── docs/captures/           Aperçus des écrans
 └── demarrer-gocelsys.bat        Lance l'API et le web en un double-clic
 ```
@@ -164,18 +164,18 @@ Exemple : fonds 50 000 FC, ventes en espèces 412 000 FC, un remboursement de 2 
 
 | Branche | Contenu | Usage |
 |---|---|---|
-| `main` | tout le projet : backend, web, mobile-entreprise, mobile-exterieur, docs | travail quotidien |
-| `deploy` | `backend/`, `web/`, `deploy/` seulement | ce que le VPS récupère ; **générée** depuis `main`, ne pas modifier à la main |
+| `main` | tout le projet : backend, web, apps mobiles, docs | votre travail ; vous poussez ici |
+| `deploy` | `backend/`, `web/`, `deploy/` | **reconstruite par GitHub** à chaque push sur `main` (`.github/workflows/branche-deploy.yml`) ; c'est elle que le serveur clone |
 
-**Publier** : double-cliquez sur `publier-vps.bat`. Il fait quatre choses :
-1. commit sur `main` ;
-2. reconstruction de `deploy` ;
-3. envoi sur GitHub ;
-4. mise à jour du serveur si vous le confirmez.
+1. Sur votre PC : `git push` (sur `main`).
+2. Sur le serveur, la première fois :
+   ```
+   git clone -b deploy https://github.com/COMPTE/gocelsys.git /opt/gocelsys
+   bash /opt/gocelsys/deploy/deploy.sh
+   ```
+3. Les fois suivantes : `gocelsys-deploy` (git pull + mise à jour).
 
-Depuis Git Bash, la commande équivalente est `bash scripts/publier-vps.sh "message"`.
-
-**Serveur** : voir [`deploy/README.md`](deploy/README.md). La première installation se fait en une commande. Ensuite, `sudo gocelsys-deploy` suffit.
+Les domaines (`gocelsys.com` principal ; `.fr` et `.online` redirigés) se règlent dans `deploy/config.env`. Le détail est dans [`deploy/README.md`](deploy/README.md).
 
 ## Mise en production
 

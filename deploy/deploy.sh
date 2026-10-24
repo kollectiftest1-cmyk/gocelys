@@ -239,7 +239,7 @@ ok "Dépôt : ${REPO_URL} (branche ${BRANCH})"
 # ============================================================================= 2. paquets
 step "Paquets système (seulement ceux qui manquent)"
 need=()
-for pkg in git curl ca-certificates openssl xz-utils nginx; do
+for pkg in git openssh-client curl ca-certificates openssl xz-utils nginx; do
   dpkg -s "$pkg" >/dev/null 2>&1 || need+=("$pkg")
 done
 command -v certbot >/dev/null 2>&1 || need+=(certbot)

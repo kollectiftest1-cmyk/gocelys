@@ -23,13 +23,19 @@ EMAIL="${EMAIL:-}"
 [[ -n "$EMAIL" ]] || read -rp "E-mail pour le certificat HTTPS (Let's Encrypt) : " EMAIL </dev/tty
 [[ -n "$REPO" ]] || { echo "URL du dépôt obligatoire."; exit 1; }
 
-command -v git >/dev/null 2>&1 || { echo "Installation de git…"; apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git >/dev/null; }
+need=()
+command -v git >/dev/null 2>&1 || need+=(git)
+command -v ssh-keygen >/dev/null 2>&1 || need+=(openssh-client)
+if (( ${#need[@]} )); then
+  echo "Installation : ${need[*]}…"
+  apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${need[@]}" >/dev/null
+fi
 
 id gocelsys >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin --user-group gocelsys
 install -d -m 0755 -o gocelsys -g gocelsys "$APP_DIR"
 install -d -m 0700 -o gocelsys -g gocelsys "$APP_DIR/.ssh"
 
-as_app() { runuser -u gocelsys -- env -C "$APP_DIR" HOME="$APP_DIR" \
+as_app() { runuser -u gocelsys -- env -C "$APP_DIR" HOME="$APP_DIR" PATH=/usr/local/bin:/usr/bin:/bin \
   GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" "$@"; }
 
 if [[ "$REPO" =~ ^(git@|ssh://) ]]; then
